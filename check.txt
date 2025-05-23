@@ -1,5 +1,1 @@
-hello i am aarif
-
-creating a super user Username : Chintu
-password : chintuPassword123@
-mailId : - abc@gmail.com
+Updated version of the project

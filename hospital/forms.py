@@ -44,20 +44,34 @@ class PatientForm(forms.ModelForm):
 
 
 
-class AppointmentForm(forms.ModelForm):
-    doctorId=forms.ModelChoiceField(queryset=models.Doctor.objects.all().filter(status=True),empty_label="Doctor Name and Department", to_field_name="user_id")
-    patientId=forms.ModelChoiceField(queryset=models.Patient.objects.all().filter(status=True),empty_label="Patient Name and Symptoms", to_field_name="user_id")
-    class Meta:
-        model=models.Appointment
-        fields=['description','status']
+# class AppointmentForm(forms.ModelForm):
+#     doctorId=forms.ModelChoiceField(queryset=models.Doctor.objects.all().filter(status=True),empty_label="Doctor Name and Department", to_field_name="user_id")
+#     patientId=forms.ModelChoiceField(queryset=models.Patient.objects.all().filter(status=True),empty_label="Patient Name and Symptoms", to_field_name="user_id")
+#     class Meta:
+#         model=models.Appointment
+#         fields=['description','status']
 
+class AppointmentForm(forms.ModelForm):
+    patientId = forms.ChoiceField(
+        choices=[(p.user.id, f"{p.user.first_name} {p.user.last_name} ({p.mobile if p.mobile else 'No Mobile'})") for p in models.Patient.objects.all().filter(status=True)],
+        label="Patient"
+    )
+
+    class Meta:
+        model = models.Appointment
+        fields = ['description', 'patientId']
+
+
+# class PatientAppointmentForm(forms.ModelForm):
+#     doctorId=forms.ModelChoiceField(queryset=models.Doctor.objects.all().filter(status=True),empty_label="Doctor Name and Department", to_field_name="user_id")
+#     class Meta:
+#         model=models.Appointment
+#         fields=['description','status']
 
 class PatientAppointmentForm(forms.ModelForm):
-    doctorId=forms.ModelChoiceField(queryset=models.Doctor.objects.all().filter(status=True),empty_label="Doctor Name and Department", to_field_name="user_id")
     class Meta:
-        model=models.Appointment
-        fields=['description','status']
-
+        model = models.Appointment
+        fields = ['description']  # Only description, no doctorId or status
 
 #for contact us page
 class ContactusForm(forms.Form):

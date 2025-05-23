@@ -22,6 +22,7 @@ from .forms import PrescriptionForm
 from fuzzywuzzy import process
 from difflib import get_close_matches
 from nltk.tokenize import word_tokenize
+from django.db.models import Prefetch
 
 # Adding new code in doctor related views
 import datetime
@@ -520,31 +521,256 @@ def admin_appointment_view(request):
 
 
 
+# ... (Keep all existing imports and other views unchanged, including admin_add_appointment_view)
+
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.shortcuts import render
+from . import models
+
+def is_admin(user):
+    return user.groups.filter(name='ADMIN').exists()
+
 @login_required(login_url='adminlogin')
 @user_passes_test(is_admin)
 def admin_view_appointment_view(request):
-    appointments=models.Appointment.objects.all().filter(status=True)
-    return render(request,'hospital/admin_view_appointment.html',{'appointments':appointments})
+    appointments = models.Appointment.objects.filter(status=True).order_by('-appointmentDate')
+    # Fetch all relevant PatientPrediction records
+    patient_ids = appointments.values_list('patientId', flat=True).distinct()
+    predictions = models.PatientPrediction.objects.filter(
+        patient__user_id__in=patient_ids
+    ).order_by('-prediction_date')
+    
+    # Pair appointments with predictions
+    appointments_with_predictions = []
+    for appointment in appointments:
+        # Find matching prediction by patientId, symptoms, and date proximity
+        matching_prediction = None
+        for prediction in predictions:
+            if (prediction.patient.user_id == appointment.patientId and
+                (prediction.symptoms == appointment.symptoms or 
+                 (not appointment.symptoms and not prediction.symptoms)) and
+                prediction.prediction_date.date() >= appointment.appointmentDate):
+                matching_prediction = prediction
+                break
+        appointments_with_predictions.append((appointment, matching_prediction))
+    
+    return render(request, 'hospital/admin_view_appointment.html', {
+        'appointments_with_predictions': appointments_with_predictions
+    })
 
 
+
+# ... (Keep all existing imports, symptom extraction, feature_names, loaded_model, and other views unchanged)
+
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.shortcuts import render, HttpResponseRedirect
+import pandas as pd
+from . import forms, models
+
+def is_admin(user):
+    return user.groups.filter(name='ADMIN').exists()
 
 @login_required(login_url='adminlogin')
 @user_passes_test(is_admin)
 def admin_add_appointment_view(request):
-    appointmentForm=forms.AppointmentForm()
-    mydict={'appointmentForm':appointmentForm,}
-    if request.method=='POST':
-        appointmentForm=forms.AppointmentForm(request.POST)
-        if appointmentForm.is_valid():
-            appointment=appointmentForm.save(commit=False)
-            appointment.doctorId=request.POST.get('doctorId')
-            appointment.patientId=request.POST.get('patientId')
-            appointment.doctorName=models.User.objects.get(id=request.POST.get('doctorId')).first_name
-            appointment.patientName=models.User.objects.get(id=request.POST.get('patientId')).first_name
-            appointment.status=True
-            appointment.save()
-        return HttpResponseRedirect('admin-view-appointment')
-    return render(request,'hospital/admin_add_appointment.html',context=mydict)
+    appointmentForm = forms.AppointmentForm()
+    message = None
+    extracted_symptoms = None
+    predicted_disease = None
+    errors = None
+    patient_id = None
+    doctor_id = None
+    description = None
+
+    if request.method == 'POST':
+        stage = request.POST.get('stage', 'submit')
+
+        if stage == 'submit':
+            appointmentForm = forms.AppointmentForm(request.POST)
+            if appointmentForm.is_valid():
+                description = appointmentForm.cleaned_data['description']
+                patient_id = int(appointmentForm.cleaned_data['patientId'])
+                patient = models.Patient.objects.get(user_id=patient_id)
+
+                # Extract symptoms and binary vector
+                try:
+                    symptom_result = extract_symptoms(description)
+                    detected_symptoms = symptom_result["detected_symptoms"]
+                    binary_vector = symptom_result["binary_vector"]
+                except Exception as e:
+                    message = f"Error extracting symptoms: {str(e)}"
+                    return render(request, 'hospital/admin_add_appointment.html', {
+                        'appointmentForm': appointmentForm,
+                        'message': message,
+                        'extracted_symptoms': extracted_symptoms,
+                        'predicted_disease': predicted_disease,
+                        'errors': errors
+                    })
+
+                # Predict disease
+                try:
+                    input_df = pd.DataFrame([binary_vector], columns=feature_names)
+                    input_df = input_df.infer_objects(copy=False).fillna(0).astype(int)
+                    predicted_disease = loaded_model.predict(input_df)[0]
+                except Exception as e:
+                    message = f"Error predicting disease: {str(e)}"
+                    return render(request, 'hospital/admin_add_appointment.html', {
+                        'appointmentForm': appointmentForm,
+                        'message': message,
+                        'extracted_symptoms': extracted_symptoms,
+                        'predicted_disease': predicted_disease,
+                        'errors': errors
+                    })
+
+                # Prepare symptoms for display and storage
+                extracted = ", ".join(sorted(detected_symptoms)) if detected_symptoms else "None"
+                extracted_symptoms = extracted
+                print(f"Extracted symptoms: {extracted}")
+                print(f"Predicted disease: {predicted_disease}")
+
+                # Disease to specialty mapping
+                disease_specialty_map = {
+                    'Stroke': 'Neurologist',
+                    'Epilepsy': 'Neurologist',
+                    'CAD': 'Cardiologist',
+                    'Heart Failure': 'Cardiologist',
+                    'Hypertensive Heart Disease': 'Cardiologist',
+                    'COPD': 'Pulmonologist',
+                    'Pneumonia': 'Pulmonologist',
+                    'Asthma': 'Pulmonologist',
+                    'Covid-19': 'Pulmonologist',
+                    'Pulmonary Fibrosis': 'Pulmonologist',
+                    'GERD': 'Gastroenterologist',
+                    'Peptic Ulcer': 'Gastroenterologist',
+                    'Gastritis': 'Gastroenterologist',
+                    'Pancreatitis': 'Gastroenterologist',
+                    'Hepatitis A': 'Hepatologist',
+                    'Cirrhosis of Liver': 'Hepatologist',
+                    'Fibrosis of Liver': 'Hepatologist',
+                    'Hypoglycemia': 'Endocrinologist',
+                    'Hperglycemia': 'Endocrinologist',
+                    'Chronic Kidney Disease': 'Nephrologist',
+                    'Acute Kidney Injury Symptoms': 'Nephrologist',
+                    'Polycystic Kidney Disease': 'Nephrologist'
+                }
+
+                # Get the specialty for the predicted disease
+                specialty = disease_specialty_map.get(predicted_disease, 'General Doctor')
+
+                # Assign a doctor
+                if specialty == 'General Doctor':
+                    doctor = models.Doctor.objects.filter(department='General Doctor', status=True).first()
+                else:
+                    doctor = models.Doctor.objects.filter(department=specialty, status=True).first()
+                    if not doctor:
+                        doctor = models.Doctor.objects.filter(department='General Doctor', status=True).first()
+
+                if not doctor:
+                    message = "No specialized or General Doctor available. Please contact the hospital."
+                    return render(request, 'hospital/admin_add_appointment.html', {
+                        'appointmentForm': appointmentForm,
+                        'message': message,
+                        'extracted_symptoms': extracted_symptoms,
+                        'predicted_disease': predicted_disease,
+                        'errors': errors
+                    })
+
+                # Set assignment message
+                if doctor.department == specialty:
+                    message = f"Assigned to {doctor.get_name} ({specialty})."
+                else:
+                    message = f"No {specialty} available. Assigned to {doctor.get_name} (General Doctor)."
+
+                doctor_id = doctor.user.id
+                doctor_name = doctor.get_name
+                patient_name = patient.get_name
+
+                # Render results card
+                return render(request, 'hospital/admin_add_appointment.html', {
+                    'appointmentForm': appointmentForm,
+                    'message': message,
+                    'extracted_symptoms': extracted_symptoms,
+                    'predicted_disease': predicted_disease,
+                    'patient_id': patient_id,
+                    'doctor_id': doctor_id,
+                    'description': description,
+                    'errors': errors
+                })
+            else:
+                errors = appointmentForm.errors
+                print(f"Form errors: {errors}")
+
+        elif stage == 'confirm':
+            patient_id = int(request.POST.get('patientId'))
+            doctor_id = int(request.POST.get('doctorId'))
+            description = request.POST.get('description')
+            symptoms = request.POST.get('symptoms')
+            predicted_disease = request.POST.get('predicted_disease')
+            patient = models.Patient.objects.get(user_id=patient_id)
+            doctor = models.Doctor.objects.get(user_id=doctor_id)
+            patient_name = patient.get_name
+            doctor_name = doctor.get_name
+
+            # Save to PatientPrediction
+            try:
+                models.PatientPrediction.objects.create(
+                    patient=patient,
+                    symptoms=symptoms,
+                    predicted_disease=predicted_disease
+                )
+            except Exception as e:
+                message = f"Error saving PatientPrediction: {str(e)}"
+                return render(request, 'hospital/admin_add_appointment.html', {
+                    'appointmentForm': appointmentForm,
+                    'message': message,
+                    'extracted_symptoms': symptoms,
+                    'predicted_disease': predicted_disease,
+                    'patient_id': patient_id,
+                    'doctor_id': doctor_id,
+                    'description': description,
+                    'errors': errors
+                })
+
+            # Save Appointment
+            try:
+                appointment = models.Appointment(
+                    patientId=patient_id,
+                    doctorId=doctor_id,
+                    patientName=patient_name,
+                    doctorName=doctor_name,
+                    description=description,
+                    symptoms=symptoms,
+                    status=True
+                )
+                appointment.save()
+            except Exception as e:
+                message = f"Error saving Appointment: {str(e)}"
+                return render(request, 'hospital/admin_add_appointment.html', {
+                    'appointmentForm': appointmentForm,
+                    'message': message,
+                    'extracted_symptoms': symptoms,
+                    'predicted_disease': predicted_disease,
+                    'patient_id': patient_id,
+                    'doctor_id': doctor_id,
+                    'description': description,
+                    'errors': errors
+                })
+
+            # Store message in session for display after redirect
+            request.session['appointment_message'] = f"Appointment booked for {patient_name} with {doctor_name}."
+            return HttpResponseRedirect('admin-view-appointment')
+
+    mydict = {
+        'appointmentForm': appointmentForm,
+        'message': message,
+        'extracted_symptoms': extracted_symptoms,
+        'predicted_disease': predicted_disease,
+        'patient_id': patient_id,
+        'doctor_id': doctor_id,
+        'description': description,
+        'errors': errors
+    }
+    return render(request, 'hospital/admin_add_appointment.html', context=mydict)
 
 
 
@@ -656,16 +882,51 @@ def doctor_patient_view(request):
 
 
 
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required, user_passes_test
+from hospital import models
+from .models import Patient, Appointment, PatientPrediction, Prescription
+from django.db.models import Prefetch
+
+def is_doctor(user):
+    return user.groups.filter(name='DOCTOR').exists()
+
 @login_required(login_url='doctorlogin')
 @user_passes_test(is_doctor)
 def doctor_view_patient_view(request):
     doctor = models.Doctor.objects.get(user_id=request.user.id)
-
-    # Get all patients who have appointments with the logged-in doctor
-    patient_ids = models.Appointment.objects.filter(doctorId=request.user.id).values_list('patientId', flat=True)
-    patients = models.Patient.objects.filter(user_id__in=patient_ids, status=True)
-
-    return render(request, 'hospital/doctor_view_patient.html', {'patients': patients, 'doctor': doctor})
+    appointments = models.Appointment.objects.filter(
+        doctorId=request.user.id,
+        status=True
+    ).prefetch_related(
+        Prefetch(
+            'prescription_set',
+            queryset=models.Prescription.objects.order_by('-prescribed_date')
+        )
+    )
+    patient_ids = appointments.values_list('patientId', flat=True)
+    patients = models.Patient.objects.filter(
+        user_id__in=patient_ids
+    ).prefetch_related(
+        Prefetch(
+            'patientprediction_set',
+            queryset=models.PatientPrediction.objects.order_by('-prediction_date')
+        )
+    )
+    patient_dict = {patient.user_id: patient for patient in patients}
+    appointment_data = []
+    for appointment in appointments:
+        patient = patient_dict.get(appointment.patientId)
+        appointment_data.append({
+            'appointment': appointment,
+            'patient': patient,
+            'predictions': patient.patientprediction_set.all() if patient else [],
+            'prescriptions': appointment.prescription_set.all()
+        })
+    return render(request, 'hospital/doctor_view_patient.html', {
+        'appointment_data': appointment_data,
+        'doctor': doctor
+    })
 
 
 @login_required(login_url='doctorlogin')
@@ -684,17 +945,6 @@ def doctor_appointment_view(request):
     return render(request,'hospital/doctor_appointment.html',{'doctor':doctor})
 
 
-
-# @login_required(login_url='doctorlogin')
-# def doctor_view_appointment_view(request):
-#     doctor = models.Doctor.objects.get(user_id=request.user.id)
-#     appointments = models.Appointment.objects.all().filter(status= True, doctorId=request.user.id)
-#     patientid = []
-#     for a in appointments:
-#         patientid.append(a.patientId)
-#     patients = models.Patient.objects.all().filter(status=True, user_id__in = patientid)
-#     appointments = zip(appointments,patients)
-#     return render(request, 'hospital/doctor_view_appointment.html',{'appointments':appointments,'doctor':doctor})
 
 @login_required(login_url='doctorlogin')
 def doctor_view_appointment_view(request):
@@ -929,63 +1179,6 @@ def patient_appointment_view(request):
     return render(request,'hospital/patient_appointment.html',{'patient':patient})
 
 
-# import re
-# import json
-# from django.http import JsonResponse, HttpResponseRedirect
-# from django.shortcuts import render
-# from django.contrib.auth.decorators import login_required, user_passes_test
-# from nltk.tokenize import word_tokenize
-# from fuzzywuzzy import fuzz
-# from nltk.corpus import wordnet
-# from . import forms, models
-# import nltk
-
-# nltk.download('punkt')
-# nltk.download('wordnet')
-
-
-# # --- Symptom List ---
-# SYMPTOMS_LIST = sorted(list(set([
-#     'abdominal_pain_especially_in_the_upper_right_side', 'absence_of_periods_in_women', 'anxiety',
-#     'anxiety.1', 'appetite changes', 'arm_or_leg unable to rise', 'arm_pain', 'ascites',
-#     'ascites ', 'back_or_side_pain', 'backwash_of_food _or_sour_liquid_in_the_throat',
-#     'belching', 'bloating', 'bloating.1', 'bloating.2', 'blurred vision', 'blurry vision',
-#     'blood in your urine', 'blood_vomitings', 'body temperature lower than normal ', 'burning_in_stomach',
-#     'burning_stomach_pain', 'change in sputum color', 'chest pain', 'chest pain.1', 'chest pain.2',
-#     'chest pain.3', 'chest_pain', 'chest_pain _ while_breathing', 'chest_pain_or_pressure', 'chest tightness',
-#     'chills', 'clay_or_gray_colored_stool', 'clubbing of the fingers', 'clubbing_of_nails', 'cognitive issues',
-#     'confusion', 'cough', 'cough.1', 'cough_with_phlegm', 'dark blood in stools', 'dark urine', 'dark_urine',
-#     'decreased mental sharpness', 'dehydration', 'diarrhoea', 'diarrhoea.1', 'diarrhoea.2', 'diarrhoea.3',
-#     'difficulty concentrating', 'difficulty in passing urine', 'difficulty in speaking', 'discomfort ',
-#     'discomfort .1', 'dizziness', 'dizziness ', 'dizziness.1', 'dizziness.2', 'drowsiness ',
-#     'dry cough', 'dry mouth', 'dry_itchy skin', 'dysphagia', 'edema', 'edema.1', 'easily bleeding ',
-#     'extreme tiredness', 'fainting', 'fainting.1', 'feeling faint', 'feeling of fullness', 'feeling weak ',
-#     'fever', 'fever ', 'fever.1', 'frequent respiratory infections', 'frequent urination', 'fruity-smelling breath',
-#     'gynecomastia in men', 'headache', 'headache.1', 'headache.2', 'headache.3', 'headaches', 'headaches.1',
-#     'heartburn', 'heartburn.1', 'hiccups', 'high blood pressure', 'high_blood_pressure', 'hunger ',
-#     'hypertension ', 'ictching.1', 'increased thirst', 'increased_abdomen_size ', 'indigestion',
-#     'intense itching', 'intolerance to fatty foods', 'irregular_heartbeat', 'itching', 'itching.1',
-#     'itchy skin', 'jaw pain', 'jaundice', 'jaundice.1', 'jaundice.2', 'lack of energy', 'lack_of_appetite',
-#     'laryngitis', 'less urine', 'loss of appetite', 'loss of appetite.1', 'loss of appetite.2',
-#     'loss of appetite.3', 'loss of appetite.4', 'loss of appetite.5', 'loss of coordination',
-#     'loss_of_consciousness', 'low-grade fever', 'low-grade fever.1', 'loss_of_appetite', 'loss_of_periods',
-#     'loss_of_coordination', 'loss_of_consciousness', 'loss_of_appetite.1', 'loss_of_appetite.2',
-#     'loss_of_appetite.3', 'muscle or body aches', 'muscle cramps', 'muscles and joint pain', 'nausea',
-#     'numbness ', 'numbness of lips', 'ongoing cough', 'oily_or_smelly_stools', 'pain in the belly',
-#     'pain in the upper belly that radiates to the back', 'pain or tenderness in the abdomen',
-#     'palpitations', 'palpitations.1', 'pale fingernails', 'pedel_edema', 'portal hypertension',
-#     'radiating_chest_ pain', 'rapid heartbeat', 'rapid pulse', 'redness in the palms of the hands',
-#     'seizure', 'sensation of a lump in the throat', 'shaking', 'shaking chills', 'shortness_of_breath',
-#     'shortness_of_breath_during_physical activities', 'sleep problems', 'slurred speech',
-#     'slurred speech.1', 'sore_throat', 'spiderlike blood vessels on the skin', 'staring_spell',
-#     'stiff_muscles', 'sudden belly pain ', 'sudden nausea ', 'sweating', 'sweating.1', 'sweatings',
-#     'sweatings.1', 'swelling_of_belly_area', 'tiredness', 'temporary_confusion', 'trouble breathing',
-#     'trouble_concentrating', 'trouble_in_walking', 'trouble_speaking ', 'trouble staying awake',
-#     'understanding_others words', 'uncontrollable_jerking_movements_of_the_arms_and_legs',
-#     'unintended weight loss', 'unusual tiredness ', 'unusual tiredness and weakness', 'upset stomach',
-#     'urinary_tract_infections', 'vomitings', 'weak vision', 'weakness', 'weakness.1', 'weakness.2',
-#     'weight gain', 'wheezing', 'wheezing ', 'headache', 'confusion'
-# ])))
 
 
 # # --- Symptom Normalization via synonyms + fuzzy match ---
@@ -995,91 +1188,6 @@ def patient_appointment_view(request):
 #         for lemma in syn.lemmas():
 #             synonyms.add(lemma.name().lower().replace(" ", "_"))
 #     return synonyms
-
-
-# def extract_symptoms(description):
-#     description = description.lower()
-#     description = description.replace("-", " ")
-#     tokens = word_tokenize(description)
-#     text = " ".join(tokens)
-
-#     detected = set()
-
-#     for symptom in SYMPTOMS_LIST:
-#         phrase = symptom.replace("_", " ")
-
-#         # 1. Exact phrase match
-#         if phrase in text:
-#             detected.add(symptom)
-#             continue
-
-#         # 2. Fuzzy match with symptom phrase
-#         if fuzz.partial_ratio(phrase, text) >= 90:
-#             detected.add(symptom)
-#             continue
-
-#         # 3. Synonym match
-#         for synonym in get_synonyms(symptom):
-#             syn_phrase = synonym.replace("_", " ")
-#             if syn_phrase in text or fuzz.partial_ratio(syn_phrase, text) >= 90:
-#                 detected.add(symptom)
-#                 break
-
-#     return sorted(detected)
-
-
-# # Dummy disease prediction (stub)
-# def predict_disease(symptoms):
-#     return "Disease Name (Predicted)"
-
-
-# # Role check
-# def is_patient(user):
-#     return models.Patient.objects.filter(user_id=user.id).exists()
-
-
-# # Main view
-# @login_required(login_url='patientlogin')
-# @user_passes_test(is_patient)
-# def patient_book_appointment_view(request):
-#     appointmentForm = forms.PatientAppointmentForm()
-#     patient = models.Patient.objects.get(user_id=request.user.id)
-#     message = None
-
-#     if request.method == 'POST':
-#         appointmentForm = forms.PatientAppointmentForm(request.POST)
-#         if appointmentForm.is_valid():
-#             desc = request.POST.get('description', '')
-
-#             extracted_list = extract_symptoms(desc)
-#             extracted = ", ".join(extracted_list)  # store in DB
-
-#             print(f"Extracted symptoms: {extracted_list}")
-
-#             predicted_disease = predict_disease(extracted_list)
-#             print(f"Predicted disease: {predicted_disease}")
-
-#             models.PatientPrediction.objects.create(
-#                 patient=patient,
-#                 symptoms=extracted,
-#                 predicted_disease=predicted_disease
-#             )
-
-#             appointment = appointmentForm.save(commit=False)
-#             appointment.doctorId = request.POST.get('doctorId')
-#             appointment.patientId = request.user.id
-#             appointment.doctorName = models.User.objects.get(id=request.POST.get('doctorId')).first_name
-#             appointment.patientName = request.user.first_name
-#             appointment.symptoms = extracted
-#             appointment.status = False
-#             appointment.save()
-
-#             return HttpResponseRedirect('patient-view-appointment')
-
-#     mydict = {'appointmentForm': appointmentForm, 'patient': patient, 'message': message}
-#     return render(request, 'hospital/patient_book_appointment.html', context=mydict)
-
-
 
 
 
@@ -1344,6 +1452,64 @@ def is_patient(user):
     return models.Patient.objects.filter(user_id=user.id).exists()
 
 # Main view
+# @login_required(login_url='patientlogin')
+# @user_passes_test(is_patient)
+# def patient_book_appointment_view(request):
+#     appointmentForm = forms.PatientAppointmentForm()
+#     patient = models.Patient.objects.get(user_id=request.user.id)
+#     message = None
+#     extracted_symptoms = None
+
+#     if request.method == 'POST':
+#         appointmentForm = forms.PatientAppointmentForm(request.POST)
+#         if appointmentForm.is_valid():
+#             desc = request.POST.get('description', '')
+
+#             # Extract symptoms and binary vector
+#             symptom_result = extract_symptoms(desc)
+#             detected_symptoms = symptom_result["detected_symptoms"]
+#             binary_vector = symptom_result["binary_vector"]
+            
+#             # Predict disease
+#             input_df = pd.DataFrame([binary_vector], columns=feature_names)
+#             input_df = input_df.infer_objects(copy=False).fillna(0).astype(int)
+#             predicted_disease = loaded_model.predict(input_df)[0]
+            
+#             # Prepare symptoms for display and storage
+#             extracted = ", ".join(sorted(detected_symptoms)) if detected_symptoms else "None"
+#             extracted_symptoms = extracted
+#             print(f"Extracted symptoms: {extracted}")
+#             print(f"Predicted disease: {predicted_disease}")
+
+#             # Save to PatientPrediction
+#             models.PatientPrediction.objects.create(
+#                 patient=patient,
+#                 symptoms=extracted,
+#                 predicted_disease=predicted_disease
+#             )
+
+#             # Save Appointment
+#             appointment = appointmentForm.save(commit=False)
+#             appointment.doctorId = request.POST.get('doctorId')
+#             appointment.patientId = request.user.id
+#             appointment.doctorName = models.User.objects.get(id=request.POST.get('doctorId')).first_name
+#             appointment.patientName = request.user.first_name
+#             appointment.symptoms = extracted
+#             appointment.status = False
+#             appointment.save()
+
+#             return HttpResponseRedirect('patient-view-appointment')
+
+#     mydict = {
+#         "appointmentForm": appointmentForm,
+#         "patient": patient,
+#         "message": message,
+#         "extracted_symptoms": extracted_symptoms
+#     }
+#     return render(request, 'hospital/patient_book_appointment.html', context=mydict)
+
+# ... (Keep all existing imports, symptom extraction, and other code unchanged)
+
 @login_required(login_url='patientlogin')
 @user_passes_test(is_patient)
 def patient_book_appointment_view(request):
@@ -1351,6 +1517,7 @@ def patient_book_appointment_view(request):
     patient = models.Patient.objects.get(user_id=request.user.id)
     message = None
     extracted_symptoms = None
+    predicted_disease = None
 
     if request.method == 'POST':
         appointmentForm = forms.PatientAppointmentForm(request.POST)
@@ -1373,6 +1540,64 @@ def patient_book_appointment_view(request):
             print(f"Extracted symptoms: {extracted}")
             print(f"Predicted disease: {predicted_disease}")
 
+            # Disease to specialty mapping
+            disease_specialty_map = {
+                'Stroke': 'Neurologist',
+                'Epilepsy': 'Neurologist',
+                'CAD': 'Cardiologist',
+                'Heart Failure': 'Cardiologist',
+                'Hypertensive Heart Disease': 'Cardiologist',
+                'COPD': 'Pulmonologist',
+                'Pneumonia': 'Pulmonologist',
+                'Asthma': 'Pulmonologist',
+                'Covid-19': 'Pulmonologist',
+                'Pulmonary Fibrosis': 'Pulmonologist',
+                'GERD': 'Gastroenterologist',
+                'Peptic Ulcer': 'Gastroenterologist',
+                'Gastritis': 'Gastroenterologist',
+                'Pancreatitis': 'Gastroenterologist',
+                'Hepatitis A': 'Hepatologist',
+                'Cirrhosis of Liver': 'Hepatologist',
+                'Fibrosis of Liver': 'Hepatologist',
+                'Hypoglycemia': 'Endocrinologist',
+                'Hperglycemia': 'Endocrinologist',
+                'Chronic Kidney Disease': 'Nephrologist',
+                'Acute Kidney Injury Symptoms': 'Nephrologist',
+                'Polycystic Kidney Disease': 'Nephrologist'
+            }
+
+            # Get the specialty for the predicted disease
+            specialty = disease_specialty_map.get(predicted_disease, 'General Doctor')  # Fallback to General Doctor
+
+            # Assign a doctor
+            if specialty == 'General Doctor':
+                doctor = models.Doctor.objects.filter(department='General Doctor', status=True).first()
+            else:
+                doctor = models.Doctor.objects.filter(department=specialty, status=True).first()
+                if not doctor:
+                    # Fallback to General Doctor
+                    doctor = models.Doctor.objects.filter(department='General Doctor', status=True).first()
+
+            if not doctor:
+                # No specialized or General Doctor available
+                message = "No specialized or General Doctor available. Please contact the hospital."
+                return render(request, 'hospital/patient_book_appointment.html', {
+                    'appointmentForm': appointmentForm,
+                    'patient': patient,
+                    'message': message,
+                    'extracted_symptoms': extracted_symptoms,
+                    'predicted_disease': predicted_disease
+                })
+
+            # Set assignment message
+            if doctor.department == specialty:
+                message = f"Assigned to {doctor.get_name} ({specialty})."
+            else:
+                message = f"No {specialty} available. Assigned to {doctor.get_name} (General Doctor)."
+
+            doctor_id = doctor.user.id
+            doctor_name = doctor.get_name
+
             # Save to PatientPrediction
             models.PatientPrediction.objects.create(
                 patient=patient,
@@ -1382,35 +1607,69 @@ def patient_book_appointment_view(request):
 
             # Save Appointment
             appointment = appointmentForm.save(commit=False)
-            appointment.doctorId = request.POST.get('doctorId')
+            appointment.doctorId = doctor_id
             appointment.patientId = request.user.id
-            appointment.doctorName = models.User.objects.get(id=request.POST.get('doctorId')).first_name
+            appointment.doctorName = doctor_name
             appointment.patientName = request.user.first_name
             appointment.symptoms = extracted
-            appointment.status = False
+            appointment.status = True
             appointment.save()
 
-            return HttpResponseRedirect('patient-view-appointment')
+            return render(request, 'hospital/patient_book_appointment.html', {
+                'appointmentForm': appointmentForm,
+                'patient': patient,
+                'message': message,
+                'extracted_symptoms': extracted_symptoms,
+                'predicted_disease': predicted_disease
+            })
 
     mydict = {
-        "appointmentForm": appointmentForm,
-        "patient": patient,
-        "message": message,
-        "extracted_symptoms": extracted_symptoms
+        'appointmentForm': appointmentForm,
+        'patient': patient,
+        'message': message,
+        'extracted_symptoms': extracted_symptoms,
+        'predicted_disease': predicted_disease
     }
     return render(request, 'hospital/patient_book_appointment.html', context=mydict)
 
+# ... (Keep all other views unchanged: patient_view_appointment_view, patient_discharge_view, patient_view_prescription)
 
 
 
+
+# ... (Keep all existing imports and other views unchanged)
+
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.shortcuts import render
+from . import models
+
+def is_patient(user):
+    return user.groups.filter(name='PATIENT').exists()
 
 @login_required(login_url='patientlogin')
 @user_passes_test(is_patient)
 def patient_view_appointment_view(request):
-    patient=models.Patient.objects.get(user_id=request.user.id) #for profile picture of patient in sidebar
-    appointments=models.Appointment.objects.all().filter(patientId=request.user.id)
-    return render(request,'hospital/patient_view_appointment.html',{'appointments':appointments,'patient':patient})
-
+    patient = models.Patient.objects.get(user_id=request.user.id)
+    appointments = models.Appointment.objects.filter(patientId=request.user.id).order_by('-appointmentDate')
+    predictions = models.PatientPrediction.objects.filter(patient=patient).order_by('-prediction_date')
+    
+    # Pair appointments with predictions based on symptoms and date proximity
+    appointments_with_predictions = []
+    for appointment in appointments:
+        # Find matching prediction by symptoms and closest date
+        matching_prediction = None
+        for prediction in predictions:
+            if (prediction.symptoms == appointment.symptoms or 
+                (not appointment.symptoms and not prediction.symptoms)) and \
+               prediction.prediction_date.date() >= appointment.appointmentDate:
+                matching_prediction = prediction
+                break
+        appointments_with_predictions.append((appointment, matching_prediction))
+    
+    return render(request, 'hospital/patient_view_appointment.html', {
+        'appointments_with_predictions': appointments_with_predictions,
+        'patient': patient
+    })
 
 
 @login_required(login_url='patientlogin')
@@ -1488,45 +1747,3 @@ def contactus_view(request):
             send_mail(str(name)+' || '+str(email),message,settings.EMAIL_HOST_USER, settings.EMAIL_RECEIVING_USER, fail_silently = False)
             return render(request, 'hospital/contactussuccess.html')
     return render(request, 'hospital/contactus.html', {'form':sub})
-
-
-
-
-
-########################################Code Written By AARIF ############################
-# import re
-# import json
-# import nltk
-# from django.http import JsonResponse
-# from nltk.tokenize import word_tokenize
-
-# nltk.download("punkt")
-# nltk.download("punkt_tab")
-
-
-
-# MODEL_PATH = "model/finalized_model.sav"
-# FEATURES_PATH = "model/features.pkl"
-
-# with open(FEATURES_PATH, 'rb') as f:
-#     feature_names = pickle.load(f)
-
-# loaded_model = pickle.load(open(MODEL_PATH, 'rb'))
-
-# def predict_disease(symptoms_list):
-#     """
-#     Predict disease based on symptoms using the trained ML model.
-#     """
-#     input_df = pd.DataFrame(columns=feature_names, index=[0])
-#     input_df = input_df.fillna(0)  # Initialize all features to zero
-
-#     for symptom in symptoms_list:
-#         for col in input_df.columns:
-#             if symptom in col.lower():  # Case-insensitive matching
-#                 input_df.loc[0, col] = 1
-#                 break
-
-#     prediction = loaded_model.predict(input_df)
-#     return prediction[0]  # Return predicted disease
-
-########################################Code Written By AARIF ############################

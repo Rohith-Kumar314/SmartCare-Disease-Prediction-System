@@ -1,24 +1,173 @@
 {% extends 'hospital/doctor_base.html' %}
-{% block content %}
-{%load static%}
+{% load static %}
 
+{% block content %}
 <head>
   <link href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
-  <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
   <script src="//code.jquery.com/jquery-1.11.1.min.js"></script>
+  <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
 
   <style media="screen">
-    a:link {
-      text-decoration: none;
-    }
+    a:link { text-decoration: none; }
+    h6 { text-align: center; }
+    .row { margin: 100px; }
+    ul.prescription-list { margin: 0; padding-left: 20px; }
+    ul.prescription-list li { margin-bottom: 5px; }
+  </style>
+</head>
 
-    h6 {
-      text-align: center;
-    }
+<div class="container">
+  <div class="panel panel-primary">
+    <div class="panel-heading">
+      <h6 class="panel-title">Your Patient Appointments</h6>
+    </div>
+    <table class="table table-hover" id="dev-table">
+      <thead>
+        <tr>
+          <th>Patient Name</th>
+          <th>Profile Picture</th>
+          <th>Appointment Date</th>
+          <th>Symptoms</th>
+          <th>Predicted Disease</th>
+          <th>Prescribed Medicines</th>
+          <th>Contact</th>
+          <th>Address</th>
+        </tr>
+      </thead>
+      {% for item in appointment_data %}
+      <tr>
+        <td>{{ item.patient.get_name|default:"N/A" }}</td>
+        <td><img src="{% static item.patient.profile_pic.url|default:'images/default_profile.jpg' %}" alt="Profile Pic" height="40px" width="40px" /></td>
+        <td>{{ item.appointment.appointmentDate|date:"Y-m-d" }}</td>
+        <td>
+          {% with prediction=item.predictions|first %}
+            {% if prediction %}
+              {{ prediction.symptoms }}
+            {% else %}
+              {{ item.appointment.symptoms|default:"N/A" }}
+            {% endif %}
+          {% endwith %}
+        </td>
+        <td>
+          {% with prediction=item.predictions|first %}
+            {{ prediction.predicted_disease|default:"N/A" }}
+          {% endwith %}
+        </td>
+        <td>
+          {% if item.prescriptions %}
+            <ul class="prescription-list">
+              {% for prescription in item.prescriptions %}
+                <li>{{ prescription.medicines }} ({{ prescription.prescribed_date|date:"Y-m-d" }})</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            None
+          {% endif %}
+        </td>
+        <td>{{ item.patient.mobile|default:"N/A" }}</td>
+        <td>{{ item.patient.address|default:"N/A" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock content %}
 
-    .row {
-      margin: 100px;
-    }
+{% comment %} {% extends 'hospital/doctor_base.html' %}
+{% load static %}
+
+{% block content %}
+<head>
+  <link href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
+  <script src="//code.jquery.com/jquery-1.11.1.min.js"></script>
+  <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
+
+  <style media="screen">
+    a:link { text-decoration: none; }
+    h6 { text-align: center; }
+    .row { margin: 100px; }
+    ul.prescription-list { margin: 0; padding-left: 20px; }
+    ul.prescription-list li { margin-bottom: 5px; }
+  </style>
+</head>
+
+<div class="container">
+  <div class="panel panel-primary">
+    <div class="panel-heading">
+      <h6 class="panel-title">Your Patient Appointments</h6>
+    </div>
+    <table class="table table-hover" id="dev-table">
+      <thead>
+        <tr>
+          <th>Patient Name</th>
+          <th>Profile Picture</th>
+          <th>Appointment Date</th>
+          <th>Symptoms</th>
+          <th>Predicted Disease</th>
+          <th>Prescribed Medicines</th>
+          <th>Contact</th>
+          <th>Address</th>
+        </tr>
+      </thead>
+      {% for appointment in appointments %}
+      <tr>
+        <td>{{ appointment.patient.get_name }}</td>
+        <td><img src="{% static appointment.patient.profile_pic.url|default:'images/default_profile.jpg' %}" alt="Profile Pic" height="40px" width="40px" /></td>
+        <td>{{ appointment.appointmentDate|date:"Y-m-d" }}</td>
+        <td>
+          {% with predictions=appointment.patient.patientprediction_set.all %}
+            {% with prediction=predictions|first %}
+              {% if prediction %}
+                {{ prediction.symptoms }}
+              {% else %}
+                {{ appointment.symptoms|default:"N/A" }}
+              {% endif %}
+            {% endwith %}
+          {% endwith %}
+        </td>
+        <td>
+          {% with predictions=appointment.patient.patientprediction_set.all %}
+            {% with prediction=predictions|first %}
+              {{ prediction.predicted_disease|default:"N/A" }}
+            {% endwith %}
+          {% endwith %}
+        </td>
+        <td>
+          {% if appointment.prescription_set.exists %}
+            <ul class="prescription-list">
+              {% for prescription in appointment.prescription_set.all %}
+                <li>{{ prescription.medicines }} ({{ prescription.prescribed_date|date:"Y-m-d" }})</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            None
+          {% endif %}
+        </td>
+        <td>{{ appointment.patient.mobile|default:"N/A" }}</td>
+        <td>{{ appointment.patient.address|default:"N/A" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock content %} {% endcomment %}
+
+
+{% comment %} {% extends 'hospital/doctor_base.html' %}
+{% load static %}
+
+{% block content %}
+<head>
+  <link href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
+  <script src="//code.jquery.com/jquery-1.11.1.min.js"></script>
+  <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
+
+  <style media="screen">
+    a:link { text-decoration: none; }
+    h6 { text-align: center; }
+    .row { margin: 100px; }
+    ul.prescription-list { margin: 0; padding-left: 20px; }
+    ul.prescription-list li { margin-bottom: 5px; }
   </style>
 </head>
 
@@ -33,23 +182,119 @@
           <th>Name</th>
           <th>Profile Picture</th>
           <th>Symptoms</th>
+          <th>Predicted Disease</th>
+          <th>Prescribed Medicines</th>
           <th>Contact</th>
           <th>Address</th>
-
         </tr>
       </thead>
       {% for p in patients %}
       <tr>
-        <td> {{p.get_name}}</td>
-        <td> <img src="{% static p.profile_pic.url %}" alt="Profile Pic" height="40px" width="40px" /></td>
-        <td>{{p.symptoms}}</td>
-        <td>{{p.mobile}}</td>
-        <td>{{p.address}}</td>
+        <td>{{ p.get_name }}</td>
+        <td><img src="{% static p.profile_pic.url|default:'images/default_profile.jpg' %}" alt="Profile Pic" height="40px" width="40px" /></td>
+        <td>
+          {% with prediction=p.patientprediction_set.last %}
+            {% if prediction %}
+              {{ prediction.symptoms }}
+            {% else %}
+              {% with appointment=p.appointment_set.last %}
+                {{ appointment.symptoms|default:p.symptoms|default:"N/A" }}
+              {% endwith %}
+            {% endif %}
+          {% endwith %}
+        </td>
+        <td>
+          {% with prediction=p.patientprediction_set.last %}
+            {{ prediction.predicted_disease|default:"N/A" }}
+          {% endwith %}
+        </td>
+        <td>
+          {% if p.prescription_set.exists %}
+            <ul class="prescription-list">
+              {% for prescription in p.prescription_set.all %}
+                <li>{{ prescription.medicines }} ({{ prescription.prescribed_date|date:"Y-m-d" }})</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            None
+          {% endif %}
+        </td>
+        <td>{{ p.mobile|default:"N/A" }}</td>
+        <td>{{ p.address|default:"N/A" }}</td>
       </tr>
       {% endfor %}
     </table>
   </div>
 </div>
+{% endblock content %} {% endcomment %}
 
+{% comment %} {% extends 'hospital/doctor_base.html' %}
+{% load static %}
 
-{% endblock content %}
+{% block content %}
+<head>
+  <link href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
+  <script src="//code.jquery.com/jquery-1.11.1.min.js"></script>
+  <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
+
+  <style media="screen">
+    a:link { text-decoration: none; }
+    h6 { text-align: center; }
+    .row { margin: 100px; }
+  </style>
+</head>
+
+<div class="container">
+  <div class="panel panel-primary">
+    <div class="panel-heading">
+      <h6 class="panel-title">Your Total Patient List</h6>
+    </div>
+    <table class="table table-hover" id="dev-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Profile Picture</th>
+          <th>Symptoms</th>
+          <th>Predicted Disease</th>
+          <th>Prescribed Medicines</th>
+          <th>Contact</th>
+          <th>Address</th>
+        </tr>
+      </thead>
+      {% for p in patients %}
+      <tr>
+        <td>{{ p.get_name }}</td>
+        <td><img src="{% static p.profile_pic.url|default:'images/default_profile.jpg' %}" alt="Profile Pic" height="40px" width="40px" /></td>
+        <td>
+          {% with prediction=p.patientprediction_set.last %}
+            {% if prediction %}
+              {{ prediction.symptoms }}
+            {% else %}
+              {% with appointment=p.appointment_set.last %}
+                {{ appointment.symptoms|default:p.symptoms|default:"N/A" }}
+              {% endwith %}
+            {% endif %}
+          {% endwith %}
+        </td>
+        <td>
+          {% with prediction=p.patientprediction_set.last %}
+            {{ prediction.predicted_disease|default:"N/A" }}
+          {% endwith %}
+        </td>
+        <td>
+          {% with prescription=p.prescription_set.last %}
+            {% if prescription %}
+              {{ prescription.medicines }} ({{ prescription.prescribed_date|date:"Y-m-d" }})
+            {% else %}
+              None
+            {% endif %}
+          {% endwith %}
+        </td>
+        <td>{{ p.mobile|default:"N/A" }}</td>
+        <td>{{ p.address|default:"N/A" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock content %} {% endcomment %}

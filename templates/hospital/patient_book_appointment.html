@@ -40,6 +40,214 @@
     .menu {
       top: 50px;
     }
+
+    .result-card {
+      border-radius: 1.5rem;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+
+    .result-header {
+      background: -webkit-linear-gradient(left, #0072ff, #8811c5);
+      color: #fff;
+      border-top-left-radius: 1.5rem;
+      border-top-right-radius: 1.5rem;
+      padding: 15px;
+      text-align: center;
+      font-weight: bold;
+    }
+
+    .result-body {
+      padding: 20px;
+    }
+  </style>
+
+  <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.1.1/js/bootstrap.min.js"></script>
+</head>
+<br><br>
+
+<div class="container register-form">
+  <div class="form">
+    <div class="note">
+      <p>Book Appointment Details</p>
+    </div>
+    <div class="form-content">
+      {% if request.method == 'POST' and message %}
+      <!-- Display results after submission -->
+      <div class="card result-card">
+        <div class="result-header">
+          Appointment Details
+        </div>
+        <div class="result-body">
+          {% if extracted_symptoms %}
+          <p><strong>Extracted Symptoms:</strong> {{ extracted_symptoms }}</p>
+          {% else %}
+          <p><strong>Extracted Symptoms:</strong> None</p>
+          {% endif %}
+          {% if predicted_disease %}
+          <p><strong>Predicted Disease:</strong> {{ predicted_disease }}</p>
+          {% else %}
+          <p><strong>Predicted Disease:</strong> Not determined</p>
+          {% endif %}
+          <p><strong>Assignment:</strong> {{ message }}</p>
+          {% if "No specialized or General Doctor available" not in message %}
+          <p><a href="{% url 'patient-view-appointment' %}" class="btn btn-primary btnSubmit">View Appointments</a></p>
+          {% else %}
+          <p>Please try again later or contact the hospital for assistance.</p>
+          <p><a href="{% url 'patient-book-appointment' %}" class="btn btn-primary btnSubmit">Try Again</a></p>
+          {% endif %}
+        </div>
+      </div>
+      {% else %}
+      <!-- Display form for GET or initial load -->
+      <form method="post">
+        {% csrf_token %}
+        <div class="row">
+          <div class="col-md-12">
+            <div class="form-group">
+              {% render_field appointmentForm.description class="form-control" placeholder="Enter your symptoms" %}
+            </div>
+          </div>
+        </div>
+        <button type="submit" class="btnSubmit">Book</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock content %}
+
+{% comment %} {% extends 'hospital/patient_base.html' %}
+{% load widget_tweaks %}
+{% block content %}
+
+<head>
+  <style media="screen">
+    a:link {
+      text-decoration: none;
+    }
+
+    .note {
+      text-align: center;
+      height: 80px;
+      background: -webkit-linear-gradient(left, #0072ff, #8811c5);
+      color: #fff;
+      font-weight: bold;
+      line-height: 80px;
+    }
+
+    .form-content {
+      padding: 5%;
+      border: 1px solid #ced4da;
+      margin-bottom: 2%;
+    }
+
+    .form-control {
+      border-radius: 1.5rem;
+    }
+
+    .btnSubmit {
+      border: none;
+      border-radius: 1.5rem;
+      padding: 1%;
+      width: 20%;
+      cursor: pointer;
+      background: #0062cc;
+      color: #fff;
+    }
+
+    .menu {
+      top: 50px;
+    }
+  </style>
+
+  <link href="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
+  <script src="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/js/bootstrap.min.js"></script>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+</head>
+<br><br>
+{% if message %}
+<script>
+  var a = "{{message}}";
+  alert(a);
+</script>
+{% endif %}
+
+{% if extracted_symptoms %}
+<div class="alert alert-info">
+    <strong>Extracted Symptoms:</strong> {{ extracted_symptoms }}<br>
+    <strong>Predicted Disease:</strong> {{ predicted_disease }}
+</div>
+{% endif %}
+
+<!-- Book appointment page -->
+<form method="post">
+  {% csrf_token %}
+  <div class="container register-form">
+    <div class="form">
+      <div class="note">
+        <p>Book Appointment Details</p>
+      </div>
+      <div class="form-content">
+        <div class="row">
+          <div class="col-md-12">
+            <div class="form-group">
+              {% render_field appointmentForm.description class="form-control" placeholder="Enter your symptoms" %}
+            </div>
+          </div>
+        </div>
+        <button type="submit" class="btnSubmit">Book</button>
+      </div>
+    </div>
+  </div>
+</form>
+
+{% endblock content %} {% endcomment %}
+
+{% comment %} {% extends 'hospital/patient_base.html' %}
+{% load widget_tweaks %}
+{% block content %}
+
+<head>
+  <style media="screen">
+    a:link {
+      text-decoration: none;
+    }
+
+    .note {
+      text-align: center;
+      height: 80px;
+      background: -webkit-linear-gradient(left, #0072ff, #8811c5);
+      color: #fff;
+      font-weight: bold;
+      line-height: 80px;
+    }
+
+    .form-content {
+      padding: 5%;
+      border: 1px solid #ced4da;
+      margin-bottom: 2%;
+    }
+
+    .form-control {
+      border-radius: 1.5rem;
+    }
+
+    .btnSubmit {
+      border: none;
+      border-radius: 1.5rem;
+      padding: 1%;
+      width: 20%;
+      cursor: pointer;
+      background: #0062cc;
+      color: #fff;
+    }
+
+    .menu {
+      top: 50px;
+    }
   </style>
 
   <link href="//maxcdn.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
@@ -88,4 +296,4 @@
 
 
 
-{% endblock content %}
+{% endblock content %} {% endcomment %}

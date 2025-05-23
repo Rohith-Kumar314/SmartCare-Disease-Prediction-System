@@ -18,6 +18,77 @@
     .row {
       margin: 100px;
     }
+
+    .table th, .table td {
+      vertical-align: middle;
+      text-align: center;
+    }
+  </style>
+</head>
+
+<div class="container">
+  <div class="panel panel-primary">
+    <div class="panel-heading">
+      <h6 class="panel-title">Your Appointments</h6>
+    </div>
+    <table class="table table-hover" id="dev-table">
+      <thead>
+        <tr>
+          <th>Assigned Doctor</th>
+          <th>Description</th>
+          <th>Extracted Symptoms</th>
+          <th>Predicted Disease</th>
+          <th>Date</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for appointment, prediction in appointments_with_predictions %}
+        <tr>
+          <td>{{ appointment.doctorName }}</td>
+          <td>{{ appointment.description }}</td>
+          <td>{{ appointment.symptoms|default:"None" }}</td>
+          <td>{{ prediction.predicted_disease|default:"Not determined" }}</td>
+          <td>{{ appointment.appointmentDate }}</td>
+          {% if appointment.status %}
+          <td><span class="label label-primary">Confirmed</span></td>
+          {% else %}
+          <td><span class="label label-success">Pending</span></td>
+          {% endif %}
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6">No appointments found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock content %}
+
+
+{% comment %} {% extends 'hospital/patient_base.html' %}
+{% block content %}
+
+<head>
+  <link href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
+  <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
+  <script src="//code.jquery.com/jquery-1.11.1.min.js"></script>
+
+  <style media="screen">
+    a:link {
+      text-decoration: none;
+    }
+
+    h6 {
+      text-align: center;
+    }
+
+    .row {
+      margin: 100px;
+    }
   </style>
 </head>
 
@@ -52,4 +123,4 @@
 </div>
 
 
-{% endblock content %}
+{% endblock content %} {% endcomment %}
