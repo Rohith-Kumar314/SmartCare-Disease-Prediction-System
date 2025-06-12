@@ -560,7 +560,7 @@ def admin_view_appointment_view(request):
 
 
 
-# ... (Keep all existing imports, symptom extraction, feature_names, loaded_model, and other views unchanged)
+
 
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.shortcuts import render, HttpResponseRedirect
@@ -1207,8 +1207,6 @@ import pandas as pd
 import pickle
 from collections import defaultdict
 
-nltk.download('punkt')
-nltk.download('punkt_tab')
 
 # Load spaCy model (free, open-source)
 nlp = spacy.load("en_core_web_sm")
